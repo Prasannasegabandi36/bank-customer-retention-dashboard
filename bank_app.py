@@ -3,500 +3,649 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (roc_auc_score, confusion_matrix,
-                             roc_curve, classification_report)
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from datetime import datetime
 
-# ─────────────────────────────────────────────────────────────
-#  PAGE CONFIG
-# ─────────────────────────────────────────────────────────────
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+    AUTOREFRESH_AVAILABLE = True
+except Exception:
+    AUTOREFRESH_AVAILABLE = False
+
+
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="Banking Retention Intelligence",
+    page_title="Real-Time Bank Customer Retention Dashboard",
     page_icon="🏦",
     layout="wide"
 )
 
-# ─────────────────────────────────────────────────────────────
-#  CUSTOM CSS
-# ─────────────────────────────────────────────────────────────
+
+# ---------------- CSS ----------------
 st.markdown("""
 <style>
-.stApp{background:linear-gradient(135deg,#061627 0%,#0B2D4D 50%,#003B73 100%);color:white;}
-[data-testid="stSidebar"]{background:linear-gradient(180deg,#020B14,#061627,#0B2D4D);}
-[data-testid="stSidebar"] *{color:white !important;}
-.block-container{padding-top:2rem;}
-.big-title{font-size:42px;font-weight:900;color:white;padding-top:10px;}
-.sub-title{font-size:18px;color:#D7E9FF;margin-bottom:25px;}
-.kpi-card{background:linear-gradient(135deg,#005B96,#00A6FB);padding:24px;border-radius:22px;
- color:white;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.25);}
-.kpi-value{font-size:32px;font-weight:900;}
-.kpi-label{font-size:14px;color:#E8F4FF;}
-.insight-box{background:rgba(255,255,255,.95);padding:20px;border-left:7px solid #00A6FB;
- border-radius:14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.2);color:#0B1F3A;}
-.warning-box{background:rgba(255,244,229,.98);padding:20px;border-left:7px solid #FFB703;
- border-radius:14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.2);color:#0B1F3A;}
-.success-box{background:rgba(232,255,241,.98);padding:20px;border-left:7px solid #00A86B;
- border-radius:14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.2);color:#0B1F3A;}
-.ml-box{background:rgba(220,230,255,.97);padding:20px;border-left:7px solid #6C5CE7;
- border-radius:14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.2);color:#0B1F3A;}
-h1,h2,h3{color:white !important;font-weight:800;}
-.stTabs [data-baseweb="tab-list"]{gap:10px;}
-.stTabs [data-baseweb="tab"]{background-color:rgba(255,255,255,.18);border-radius:14px;
- padding:12px 18px;font-weight:700;color:white;}
-.stTabs [aria-selected="true"]{background:linear-gradient(135deg,#00A6FB,#0074D9);color:white;}
-[data-testid="stMetric"]{background:rgba(255,255,255,.15);padding:18px;border-radius:18px;
- color:white;box-shadow:0 6px 18px rgba(0,0,0,.25);}
-[data-testid="stDataFrame"]{background:white;border-radius:15px;}
+.stApp {
+    background: linear-gradient(135deg, #07111f 0%, #0b1f33 45%, #102a43 100%);
+    color: white;
+}
+.main-title {
+    font-size: 42px;
+    font-weight: 800;
+    color: white;
+    margin-bottom: 0px;
+}
+.sub-title {
+    font-size: 17px;
+    color: #b8c7d9;
+    margin-bottom: 25px;
+}
+.kpi-card {
+    background: rgba(255,255,255,0.08);
+    padding: 22px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.25);
+}
+.kpi-value {
+    font-size: 34px;
+    font-weight: 800;
+    color: #ffffff;
+}
+.kpi-label {
+    font-size: 14px;
+    color: #b8c7d9;
+}
+.alert-high {
+    background: rgba(255, 75, 75, 0.15);
+    border-left: 6px solid #ff4b4b;
+    padding: 18px;
+    border-radius: 12px;
+    color: white;
+}
+.alert-medium {
+    background: rgba(255, 193, 7, 0.15);
+    border-left: 6px solid #ffc107;
+    padding: 18px;
+    border-radius: 12px;
+    color: white;
+}
+.alert-good {
+    background: rgba(0, 200, 120, 0.15);
+    border-left: 6px solid #00c878;
+    padding: 18px;
+    border-radius: 12px;
+    color: white;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────
-#  LOAD DATA
-# ─────────────────────────────────────────────────────────────
+
+# ---------------- LOAD DATA ----------------
 @st.cache_data
 def load_data():
-    return pd.read_csv("European_Bank.csv")
+    df = pd.read_csv("European_Bank.csv")
+    return df
 
 df = load_data()
 
-# ─────────────────────────────────────────────────────────────
-#  FEATURE ENGINEERING  (rule-based, kept from original)
-# ─────────────────────────────────────────────────────────────
-df["Engagement_Profile"] = np.select(
+
+# ---------------- FEATURE ENGINEERING ----------------
+df["Customer_Status"] = df["Exited"].map({0: "Retained", 1: "Churned"})
+
+df["Engagement_Segment"] = np.select(
     [
-        (df["IsActiveMember"]==1) & (df["NumOfProducts"]>=2),
-        (df["IsActiveMember"]==0) & (df["Balance"]>100000),
-        (df["IsActiveMember"]==1) & (df["NumOfProducts"]==1),
-        (df["IsActiveMember"]==0)
+        (df["IsActiveMember"] == 1) & (df["NumOfProducts"] >= 2),
+        (df["IsActiveMember"] == 0) & (df["Balance"] > 100000),
+        (df["IsActiveMember"] == 1) & (df["NumOfProducts"] == 1),
+        (df["IsActiveMember"] == 0)
     ],
-    ["Active Engaged Customer","Inactive High-Balance Customer",
-     "Active Low-Product Customer","Inactive Disengaged Customer"],
-    default="Other Customer"
+    [
+        "Active Multi-Product Customer",
+        "Inactive High-Value Customer",
+        "Active Single-Product Customer",
+        "Inactive Low-Engagement Customer"
+    ],
+    default="Normal Customer"
 )
 
-df["Relationship_Strength_Index"] = (
-    np.where(df["IsActiveMember"]==1,1,0) +
-    np.where(df["NumOfProducts"]>=2,1,0) +
-    np.where(df["HasCrCard"]==1,1,0) +
-    np.where(df["Tenure"]>=5,1,0)
+df["Relationship_Score"] = (
+    df["IsActiveMember"] * 25 +
+    np.where(df["NumOfProducts"] >= 2, 25, 10) +
+    np.where(df["HasCrCard"] == 1, 15, 0) +
+    np.where(df["Tenure"] >= 5, 20, 5) +
+    np.where(df["Balance"] > 100000, 15, 5)
 )
 
-df["Relationship_Category"] = pd.cut(
-    df["Relationship_Strength_Index"],
-    bins=[-1,1,2,4],
-    labels=["Weak Relationship","Medium Relationship","Strong Relationship"]
+df["Relationship_Level"] = pd.cut(
+    df["Relationship_Score"],
+    bins=[0, 45, 75, 120],
+    labels=["Weak", "Medium", "Strong"]
 )
 
-df["Retention_Intelligence_Score"] = (
-    df["Relationship_Strength_Index"]*20 +
-    df["IsActiveMember"]*20 +
-    np.where(df["Balance"]>100000,10,0)
-)
 
-df["Risk_Level"] = "High Risk"
-df.loc[df["Retention_Intelligence_Score"]>=80,"Risk_Level"] = "Low Risk"
-df.loc[(df["Retention_Intelligence_Score"]>=50)&
-       (df["Retention_Intelligence_Score"]<80),"Risk_Level"] = "Medium Risk"
-
-# ─────────────────────────────────────────────────────────────
-#  ML — TRAIN THREE MODELS, PICK BEST (Gradient Boosting)
-# ─────────────────────────────────────────────────────────────
+# ---------------- ML MODEL ----------------
 @st.cache_resource
-def train_all_models(data):
-    d = data.copy()
-    le_geo = LabelEncoder(); le_gen = LabelEncoder()
-    d["Geography_enc"] = le_geo.fit_transform(d["Geography"])
-    d["Gender_enc"]    = le_gen.fit_transform(d["Gender"])
+def train_model(data):
+    model_df = data.copy()
 
-    FEATURES = ["CreditScore","Geography_enc","Gender_enc","Age","Tenure",
-                "Balance","NumOfProducts","HasCrCard","IsActiveMember","EstimatedSalary"]
-    X = d[FEATURES]; y = d["Exited"]
+    geo_encoder = LabelEncoder()
+    gender_encoder = LabelEncoder()
 
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y)
+    model_df["Geography_Encoded"] = geo_encoder.fit_transform(model_df["Geography"])
+    model_df["Gender_Encoded"] = gender_encoder.fit_transform(model_df["Gender"])
 
-    scaler = StandardScaler()
-    X_tr_sc = scaler.fit_transform(X_tr)
-    X_te_sc = scaler.transform(X_te)
+    features = [
+        "CreditScore",
+        "Geography_Encoded",
+        "Gender_Encoded",
+        "Age",
+        "Tenure",
+        "Balance",
+        "NumOfProducts",
+        "HasCrCard",
+        "IsActiveMember",
+        "EstimatedSalary"
+    ]
 
-    models = {
-        "Logistic Regression": (LogisticRegression(max_iter=1000,random_state=42), True),
-        "Random Forest":        (RandomForestClassifier(n_estimators=150,max_depth=10,random_state=42,n_jobs=-1), False),
-        "Gradient Boosting":    (GradientBoostingClassifier(n_estimators=150,random_state=42), False),
-    }
+    X = model_df[features]
+    y = model_df["Exited"]
 
-    results = {}
-    for name,(m,needs_scale) in models.items():
-        Xtr = X_tr_sc if needs_scale else X_tr
-        Xte = X_te_sc if needs_scale else X_te
-        m.fit(Xtr, y_tr)
-        prob = m.predict_proba(Xte)[:,1]
-        pred = m.predict(Xte)
-        rep  = classification_report(y_te,pred,output_dict=True)
-        results[name] = {
-            "model":     m,
-            "needs_scale": needs_scale,
-            "auc":       round(roc_auc_score(y_te,prob),4),
-            "accuracy":  round(rep["accuracy"]*100,2),
-            "precision": round(rep["1"]["precision"]*100,2),
-            "recall":    round(rep["1"]["recall"]*100,2),
-            "f1":        round(rep["1"]["f1-score"]*100,2),
-            "cm":        confusion_matrix(y_te,pred),
-            "fpr":       roc_curve(y_te,prob)[0],
-            "tpr":       roc_curve(y_te,prob)[1],
-            "fi": (pd.Series(m.feature_importances_,index=FEATURES)
-                   .sort_values(ascending=False).reset_index()
-                   .rename(columns={"index":"Feature",0:"Importance"})
-                   if hasattr(m,"feature_importances_") else None),
-        }
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
 
-    best = results["Gradient Boosting"]
-    return results, best, le_geo, le_gen, scaler, FEATURES
+    model = GradientBoostingClassifier(random_state=42)
+    model.fit(X_train, y_train)
 
-results, best_model_info, le_geo, le_gen, scaler, ML_FEATURES = train_all_models(df)
-best_model = best_model_info["model"]
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1]
 
-# attach ML probability to full df
-df_enc = df.copy()
-df_enc["Geography_enc"] = le_geo.transform(df_enc["Geography"])
-df_enc["Gender_enc"]    = le_gen.transform(df_enc["Gender"])
-df["ML_Churn_Prob"] = best_model.predict_proba(df_enc[ML_FEATURES])[:,1]
-df["ML_Churn_Risk"] = pd.cut(df["ML_Churn_Prob"],bins=[0,.33,.66,1.0],
-                              labels=["Low Risk","Medium Risk","High Risk"])
+    accuracy = accuracy_score(y_test, y_pred)
+    auc = roc_auc_score(y_test, y_prob)
 
-# ─────────────────────────────────────────────────────────────
-#  SIDEBAR FILTERS
-# ─────────────────────────────────────────────────────────────
-st.sidebar.title("🏦 Control Panel")
-st.sidebar.markdown("Filter customers to explore retention behavior.")
+    return model, geo_encoder, gender_encoder, features, accuracy, auc
 
-geography    = st.sidebar.multiselect("🌍 Geography",   df["Geography"].unique(), default=df["Geography"].unique())
-gender       = st.sidebar.multiselect("👤 Gender",      df["Gender"].unique(),    default=df["Gender"].unique())
-active_status= st.sidebar.multiselect("⚡ Active Status",df["IsActiveMember"].unique(), default=df["IsActiveMember"].unique())
-product_range= st.sidebar.slider("📦 No. of Products",
-                                  int(df["NumOfProducts"].min()), int(df["NumOfProducts"].max()),
-                                  (int(df["NumOfProducts"].min()), int(df["NumOfProducts"].max())))
-balance_min  = st.sidebar.slider("💰 Min Balance", 0, int(df["Balance"].max()), 0)
 
-fdf = df[
-    df["Geography"].isin(geography) &
-    df["Gender"].isin(gender) &
-    df["IsActiveMember"].isin(active_status) &
-    df["NumOfProducts"].between(*product_range) &
-    (df["Balance"]>=balance_min)
+model, geo_encoder, gender_encoder, features, accuracy, auc = train_model(df)
+
+ml_df = df.copy()
+ml_df["Geography_Encoded"] = geo_encoder.transform(ml_df["Geography"])
+ml_df["Gender_Encoded"] = gender_encoder.transform(ml_df["Gender"])
+df["Churn_Probability"] = model.predict_proba(ml_df[features])[:, 1]
+
+df["ML_Risk_Level"] = pd.cut(
+    df["Churn_Probability"],
+    bins=[0, 0.35, 0.65, 1],
+    labels=["Low Risk", "Medium Risk", "High Risk"]
+)
+
+df["Churn_Probability_Percent"] = (df["Churn_Probability"] * 100).round(2)
+
+
+# ---------------- SIDEBAR ----------------
+st.sidebar.title("🏦 Control Center")
+
+refresh_seconds = st.sidebar.slider(
+    "Dashboard Refresh Speed",
+    min_value=5,
+    max_value=60,
+    value=15,
+    step=5
+)
+
+if AUTOREFRESH_AVAILABLE:
+    refresh_count = st_autorefresh(
+        interval=refresh_seconds * 1000,
+        key="bank_realtime_refresh"
+    )
+else:
+    refresh_count = 0
+    st.sidebar.info("For auto refresh, add streamlit-autorefresh in requirements.txt")
+
+geography_filter = st.sidebar.multiselect(
+    "Select Geography",
+    sorted(df["Geography"].unique()),
+    default=sorted(df["Geography"].unique())
+)
+
+gender_filter = st.sidebar.multiselect(
+    "Select Gender",
+    sorted(df["Gender"].unique()),
+    default=sorted(df["Gender"].unique())
+)
+
+risk_filter = st.sidebar.multiselect(
+    "Select ML Risk Level",
+    ["Low Risk", "Medium Risk", "High Risk"],
+    default=["Low Risk", "Medium Risk", "High Risk"]
+)
+
+active_filter = st.sidebar.multiselect(
+    "Active Member Status",
+    [0, 1],
+    default=[0, 1],
+    format_func=lambda x: "Active" if x == 1 else "Inactive"
+)
+
+filtered_df = df[
+    (df["Geography"].isin(geography_filter)) &
+    (df["Gender"].isin(gender_filter)) &
+    (df["ML_Risk_Level"].astype(str).isin(risk_filter)) &
+    (df["IsActiveMember"].isin(active_filter))
 ]
 
-# ─────────────────────────────────────────────────────────────
-#  HEADER + KPIs
-# ─────────────────────────────────────────────────────────────
-st.markdown('<div class="big-title">🏦 Customer Retention Intelligence Platform</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">💼 Banking Analytics • 📊 Churn Intelligence • 🤖 ML Prediction (Gradient Boosting) • 🚀 Retention Strategy</div>', unsafe_allow_html=True)
+
+# ---------------- HEADER ----------------
+st.markdown("<div class='main-title'>🏦 Real-Time Bank Customer Retention Intelligence Dashboard</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='sub-title'>Live-style customer churn monitoring • ML risk scoring • retention strategy • executive analytics</div>",
+    unsafe_allow_html=True
+)
+
+last_updated = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
+st.caption(f"Last refreshed: {last_updated}")
+
+
+# ---------------- KPI CALCULATIONS ----------------
+total_customers = len(filtered_df)
+churned_customers = int(filtered_df["Exited"].sum())
+retained_customers = total_customers - churned_customers
+churn_rate = round((churned_customers / total_customers) * 100, 2) if total_customers > 0 else 0
+avg_balance = round(filtered_df["Balance"].mean(), 2) if total_customers > 0 else 0
+high_risk_customers = filtered_df[filtered_df["ML_Risk_Level"].astype(str) == "High Risk"]
+high_risk_count = len(high_risk_customers)
+
+
+# ---------------- KPI CARDS ----------------
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+
+kpi_data = [
+    (k1, "Total Customers", f"{total_customers:,}"),
+    (k2, "Churn Rate", f"{churn_rate}%"),
+    (k3, "Retained Customers", f"{retained_customers:,}"),
+    (k4, "Churned Customers", f"{churned_customers:,}"),
+    (k5, "High Risk Customers", f"{high_risk_count:,}"),
+    (k6, "Avg Balance", f"€{avg_balance:,.0f}")
+]
+
+for col, label, value in kpi_data:
+    col.markdown(
+        f"""
+        <div class='kpi-card'>
+            <div class='kpi-value'>{value}</div>
+            <div class='kpi-label'>{label}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 st.write("")
 
-n     = len(fdf)
-churn = int(fdf["Exited"].sum()) if n>0 else 0
-ret   = n - churn
-cr    = round(churn/n*100,2) if n>0 else 0
-avg_s = round(fdf["Retention_Intelligence_Score"].mean(),2) if n>0 else 0
-hi_risk= fdf[(fdf["Balance"]>100000)&(fdf["IsActiveMember"]==0)]
 
-c1,c2,c3,c4,c5 = st.columns(5)
-for col,label,val in [
-    (c1,"👥 Total Customers",f"{n:,}"),
-    (c2,"📉 Churn Rate",f"{cr}%"),
-    (c3,"✅ Retained",f"{ret:,}"),
-    (c4,"⚠️ Churned",f"{churn:,}"),
-    (c5,"🧠 Avg Retention Score",avg_s),
-]:
-    col.markdown(f'<div class="kpi-card"><div class="kpi-value">{val}</div><div class="kpi-label">{label}</div></div>',
-                 unsafe_allow_html=True)
-st.write("")
+# ---------------- ALERT BOX ----------------
+if churn_rate >= 25:
+    st.markdown(
+        f"""
+        <div class='alert-high'>
+        🚨 Critical Alert: Current churn rate is {churn_rate}%. Immediate retention campaign is required.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+elif churn_rate >= 15:
+    st.markdown(
+        f"""
+        <div class='alert-medium'>
+        ⚠️ Warning: Churn rate is {churn_rate}%. Monitor inactive and high-balance customers.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+else:
+    st.markdown(
+        f"""
+        <div class='alert-good'>
+        ✅ Stable: Churn rate is {churn_rate}%. Continue monitoring customer engagement.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-# ─────────────────────────────────────────────────────────────
-#  TABS
-# ─────────────────────────────────────────────────────────────
-tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
-    "📊 Executive Overview",
-    "🧠 Customer Intelligence",
-    "🚨 Premium Risk Radar",
-    "💎 Relationship Strength",
-    "🤖 ML Churn Prediction",
-    "🎯 Strategy Playbook"
+
+# ---------------- TABS ----------------
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊 Live Overview",
+    "🚨 Risk Command Center",
+    "👥 Customer Segments",
+    "🤖 ML Prediction",
+    "📈 Business Insights",
+    "📋 Data Explorer"
 ])
 
-# ── TAB 1 ──────────────────────────────────────────────────
+
+# ---------------- TAB 1 ----------------
 with tab1:
-    st.header("📊 Executive Retention Overview")
-    c1,c2 = st.columns(2)
-    with c1:
-        cd = fdf["Exited"].value_counts().reset_index()
-        cd.columns=["Exited","Count"]; cd["Status"]=cd["Exited"].map({0:"Retained",1:"Churned"})
-        st.plotly_chart(px.pie(cd,values="Count",names="Status",hole=.55,title="Churn Distribution"),use_container_width=True)
-    with c2:
-        gc = fdf.groupby("Geography")["Exited"].mean().reset_index()
-        gc["Churn Rate (%)"]=(gc["Exited"]*100).round(2)
-        st.plotly_chart(px.bar(gc,x="Geography",y="Churn Rate (%)",text="Churn Rate (%)",title="Churn by Geography"),use_container_width=True)
-    st.markdown('<div class="insight-box">📌 <b>Insight:</b> Germany has the highest churn rate among all geographies. Focus reactivation campaigns there first.</div>',unsafe_allow_html=True)
+    st.subheader("📊 Real-Time Executive Overview")
 
-# ── TAB 2 ──────────────────────────────────────────────────
-with tab2:
-    st.header("🧠 Customer Engagement & Product Intelligence")
-    c1,c2 = st.columns(2)
-    with c1:
-        ea = fdf.groupby("IsActiveMember")["Exited"].mean().reset_index()
-        ea["Type"]=ea["IsActiveMember"].map({0:"Inactive",1:"Active"})
-        ea["Churn Rate (%)"]=(ea["Exited"]*100).round(2)
-        st.plotly_chart(px.bar(ea,x="Type",y="Churn Rate (%)",text="Churn Rate (%)",title="Active vs Inactive Churn"),use_container_width=True)
-    with c2:
-        pc = fdf.groupby("NumOfProducts")["Exited"].mean().reset_index()
-        pc["Churn Rate (%)"]=(pc["Exited"]*100).round(2)
-        st.plotly_chart(px.bar(pc,x="NumOfProducts",y="Churn Rate (%)",text="Churn Rate (%)",title="Products Used vs Churn"),use_container_width=True)
-    ep = fdf.groupby("Engagement_Profile")["Exited"].mean().reset_index()
-    ep["Churn Rate (%)"]=(ep["Exited"]*100).round(2)
-    fig=px.bar(ep,x="Engagement_Profile",y="Churn Rate (%)",text="Churn Rate (%)",title="Engagement Profile vs Churn")
-    fig.update_layout(xaxis_tickangle=-25)
-    st.plotly_chart(fig,use_container_width=True)
-    st.markdown('<div class="success-box">✅ <b>Finding:</b> Inactive Disengaged Customers churn the most. Multi-product active customers show the strongest loyalty.</div>',unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
 
-# ── TAB 3 ──────────────────────────────────────────────────
-with tab3:
-    st.header("🚨 Premium Customer Risk Radar")
-    st.markdown('<div class="warning-box">⚠️ <b>Silent Churn Risk:</b> Customers with Balance > 100,000 AND inactive status — appear valuable but are silently disengaging.</div>',unsafe_allow_html=True)
-    st.write("")
-    st.metric("💰 High-Value Disengaged Customers", len(hi_risk))
-    if len(hi_risk)>0:
-        rg = hi_risk.groupby("Geography")["CustomerId"].count().reset_index()
-        rg.columns=["Geography","Risk Customers"]
-        st.plotly_chart(px.bar(rg,x="Geography",y="Risk Customers",text="Risk Customers",title="Premium Risk by Geography"),use_container_width=True)
-        st.dataframe(
-            hi_risk[["CustomerId","Surname","Geography","Gender","Age","Balance",
-                      "NumOfProducts","IsActiveMember","Exited","ML_Churn_Prob"]]
-            .sort_values("ML_Churn_Prob",ascending=False).head(50),
-            use_container_width=True
+    with c1:
+        status_df = filtered_df["Customer_Status"].value_counts().reset_index()
+        status_df.columns = ["Status", "Count"]
+
+        fig = px.pie(
+            status_df,
+            names="Status",
+            values="Count",
+            hole=0.55,
+            title="Customer Retention vs Churn"
         )
-    else:
-        st.success("No premium risk customers in current filter.")
+        st.plotly_chart(fig, use_container_width=True)
 
-# ── TAB 4 ──────────────────────────────────────────────────
-with tab4:
-    st.header("💎 Relationship Strength & Retention Intelligence")
-    c1,c2 = st.columns(2)
-    with c1:
-        rs = fdf.groupby("Relationship_Category")["Exited"].mean().reset_index()
-        rs["Churn Rate (%)"]=(rs["Exited"]*100).round(2)
-        st.plotly_chart(px.bar(rs,x="Relationship_Category",y="Churn Rate (%)",text="Churn Rate (%)",title="Relationship Strength vs Churn"),use_container_width=True)
     with c2:
-        rv = fdf["Risk_Level"].value_counts().reset_index(); rv.columns=["Risk Level","Customers"]
-        st.plotly_chart(px.pie(rv,values="Customers",names="Risk Level",hole=.45,title="Retention Risk Segments"),use_container_width=True)
-    st.subheader("📌 Segment Summary Table")
-    ss = fdf.groupby("Risk_Level").agg(
-        Customers=("CustomerId","count"),
-        Avg_Balance=("Balance","mean"),
-        Avg_Score=("Retention_Intelligence_Score","mean"),
-        Churn_Rate=("Exited","mean")
+        geo_churn = filtered_df.groupby("Geography")["Exited"].mean().reset_index()
+        geo_churn["Churn Rate (%)"] = (geo_churn["Exited"] * 100).round(2)
+
+        fig = px.bar(
+            geo_churn,
+            x="Geography",
+            y="Churn Rate (%)",
+            text="Churn Rate (%)",
+            title="Churn Rate by Geography"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+
+    with c3:
+        risk_df = filtered_df["ML_Risk_Level"].value_counts().reset_index()
+        risk_df.columns = ["Risk Level", "Customers"]
+
+        fig = px.bar(
+            risk_df,
+            x="Risk Level",
+            y="Customers",
+            text="Customers",
+            title="ML Risk Distribution"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c4:
+        active_churn = filtered_df.groupby("IsActiveMember")["Exited"].mean().reset_index()
+        active_churn["Member Type"] = active_churn["IsActiveMember"].map({0: "Inactive", 1: "Active"})
+        active_churn["Churn Rate (%)"] = (active_churn["Exited"] * 100).round(2)
+
+        fig = px.bar(
+            active_churn,
+            x="Member Type",
+            y="Churn Rate (%)",
+            text="Churn Rate (%)",
+            title="Active vs Inactive Customer Churn"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ---------------- TAB 2 ----------------
+with tab2:
+    st.subheader("🚨 Risk Command Center")
+
+    st.markdown("### Top 25 High-Risk Customers")
+
+    high_risk_table = filtered_df.sort_values(
+        "Churn_Probability",
+        ascending=False
+    ).head(25)
+
+    st.dataframe(
+        high_risk_table[
+            [
+                "CustomerId",
+                "Surname",
+                "Geography",
+                "Gender",
+                "Age",
+                "Balance",
+                "NumOfProducts",
+                "IsActiveMember",
+                "Churn_Probability_Percent",
+                "ML_Risk_Level",
+                "Exited"
+            ]
+        ],
+        use_container_width=True
+    )
+
+    csv = high_risk_table.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download High-Risk Customer List",
+        data=csv,
+        file_name="high_risk_bank_customers.csv",
+        mime="text/csv"
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        fig = px.scatter(
+            filtered_df,
+            x="Age",
+            y="Balance",
+            color="ML_Risk_Level",
+            size="Churn_Probability_Percent",
+            hover_data=["CustomerId", "Surname", "Geography", "NumOfProducts"],
+            title="Customer Risk Radar: Age vs Balance"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        premium_risk = filtered_df[
+            (filtered_df["Balance"] > 100000) &
+            (filtered_df["IsActiveMember"] == 0)
+        ]
+
+        premium_geo = premium_risk.groupby("Geography")["CustomerId"].count().reset_index()
+        premium_geo.columns = ["Geography", "Premium Risk Customers"]
+
+        fig = px.bar(
+            premium_geo,
+            x="Geography",
+            y="Premium Risk Customers",
+            text="Premium Risk Customers",
+            title="Inactive High-Balance Customers by Geography"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ---------------- TAB 3 ----------------
+with tab3:
+    st.subheader("👥 Customer Segment Intelligence")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        segment_churn = filtered_df.groupby("Engagement_Segment")["Exited"].mean().reset_index()
+        segment_churn["Churn Rate (%)"] = (segment_churn["Exited"] * 100).round(2)
+
+        fig = px.bar(
+            segment_churn,
+            x="Engagement_Segment",
+            y="Churn Rate (%)",
+            text="Churn Rate (%)",
+            title="Churn Rate by Engagement Segment"
+        )
+        fig.update_layout(xaxis_tickangle=-25)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        product_churn = filtered_df.groupby("NumOfProducts")["Exited"].mean().reset_index()
+        product_churn["Churn Rate (%)"] = (product_churn["Exited"] * 100).round(2)
+
+        fig = px.bar(
+            product_churn,
+            x="NumOfProducts",
+            y="Churn Rate (%)",
+            text="Churn Rate (%)",
+            title="Product Usage vs Churn"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    relationship_summary = filtered_df.groupby("Relationship_Level").agg(
+        Customers=("CustomerId", "count"),
+        Avg_Balance=("Balance", "mean"),
+        Avg_Relationship_Score=("Relationship_Score", "mean"),
+        Churn_Rate=("Exited", "mean")
     ).reset_index()
-    ss["Avg_Balance"]=ss["Avg_Balance"].round(2)
-    ss["Avg_Score"]=ss["Avg_Score"].round(2)
-    ss["Churn_Rate"]=(ss["Churn_Rate"]*100).round(2)
-    st.dataframe(ss,use_container_width=True)
 
-# ── TAB 5  — ML CHURN PREDICTION ───────────────────────────
-with tab5:
-    st.header("🤖 Machine Learning Churn Prediction")
-    st.markdown("""
-    <div class="ml-box">
-    🤖 <b>Three ML models trained on this dataset:</b><br>
-    Logistic Regression → Random Forest → <b>Gradient Boosting (Best — AUC 0.87)</b><br>
-    Model trained on 80% data (8,000 customers), tested on 20% (2,000 customers).
-    Features: CreditScore, Age, Tenure, Balance, NumOfProducts, HasCrCard,
-    IsActiveMember, EstimatedSalary, Geography, Gender.
-    </div>""", unsafe_allow_html=True)
-    st.write("")
+    relationship_summary["Avg_Balance"] = relationship_summary["Avg_Balance"].round(2)
+    relationship_summary["Avg_Relationship_Score"] = relationship_summary["Avg_Relationship_Score"].round(2)
+    relationship_summary["Churn_Rate"] = (relationship_summary["Churn_Rate"] * 100).round(2)
 
-    # ── Model Comparison Table ──
-    st.subheader("📊 Model Comparison — All Three Algorithms")
-    comp_rows = []
-    for name,r in results.items():
-        comp_rows.append({"Model":name,"AUC":r["auc"],
-                          "Accuracy (%)":r["accuracy"],"Precision (%)":r["precision"],
-                          "Recall (%)":r["recall"],"F1-Score (%)":r["f1"]})
-    comp_df = pd.DataFrame(comp_rows)
-    st.dataframe(comp_df.style.highlight_max(subset=["AUC","Accuracy (%)","F1-Score (%)"],color="#c8f7c5"),
-                 use_container_width=True)
+    st.markdown("### Relationship Strength Summary")
+    st.dataframe(relationship_summary, use_container_width=True)
 
-    st.write("")
-    st.subheader("🏆 Best Model: Gradient Boosting — Performance Details")
 
-    m1,m2,m3,m4,m5 = st.columns(5)
-    for col,label,val,color in [
-        (m1,"🎯 Accuracy",   f"{best_model_info['accuracy']}%",  "#00A6FB"),
-        (m2,"📡 AUC Score",  f"{best_model_info['auc']}",        "#6C5CE7"),
-        (m3,"🔍 Precision",  f"{best_model_info['precision']}%", "#00A86B"),
-        (m4,"📻 Recall",     f"{best_model_info['recall']}%",    "#FFB703"),
-        (m5,"⚖️ F1-Score",  f"{best_model_info['f1']}%",        "#FF4B4B"),
-    ]:
-        col.markdown(f'<div class="kpi-card" style="background:linear-gradient(135deg,{color}aa,{color})"><div class="kpi-value">{val}</div><div class="kpi-label">{label}</div></div>',
-                     unsafe_allow_html=True)
-    st.write("")
+# ---------------- TAB 4 ----------------
+with tab4:
+    st.subheader("🤖 Live ML Churn Prediction")
 
-    c1,c2 = st.columns(2)
+    st.markdown(
+        f"""
+        Model Used: **Gradient Boosting Classifier**  
+        Accuracy: **{round(accuracy * 100, 2)}%**  
+        AUC Score: **{round(auc, 3)}**
+        """
+    )
 
-    # ROC Curves — all 3 models
-    with c1:
-        fig_roc = go.Figure()
-        colors  = {"Gradient Boosting":"#00A6FB","Random Forest":"#00A86B","Logistic Regression":"#FFB703"}
-        for name,r in results.items():
-            fig_roc.add_trace(go.Scatter(x=r["fpr"],y=r["tpr"],mode="lines",
-                name=f"{name} (AUC={r['auc']})",line=dict(color=colors[name],width=2+(name=="Gradient Boosting"))))
-        fig_roc.add_trace(go.Scatter(x=[0,1],y=[0,1],mode="lines",name="Random",line=dict(color="gray",dash="dash")))
-        fig_roc.update_layout(title="ROC Curves — All Models",
-            xaxis_title="False Positive Rate",yaxis_title="True Positive Rate",
-            paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.05)",font=dict(color="white"))
-        st.plotly_chart(fig_roc,use_container_width=True)
+    st.markdown("### Predict New Customer Churn Risk")
 
-    # Confusion Matrix — best model
-    with c2:
-        cm = best_model_info["cm"]
-        fig_cm = px.imshow(cm,text_auto=True,
-            x=["Predicted Retained","Predicted Churned"],
-            y=["Actual Retained","Actual Churned"],
-            title="Confusion Matrix — Gradient Boosting",
-            color_continuous_scale="Blues")
-        fig_cm.update_layout(paper_bgcolor="rgba(0,0,0,0)",font=dict(color="white"))
-        st.plotly_chart(fig_cm,use_container_width=True)
+    with st.form("customer_prediction_form"):
+        p1, p2, p3 = st.columns(3)
 
-    # Feature Importance
-    st.subheader("🔑 Feature Importance — What Actually Drives Churn?")
-    fi_df = best_model_info["fi"]
-    fi_df.columns = ["Feature","Importance"]
-    fig_fi = px.bar(fi_df,x="Importance",y="Feature",orientation="h",
-        text=fi_df["Importance"].round(3),
-        title="Gradient Boosting Feature Importance",
-        color="Importance",color_continuous_scale="Blues")
-    fig_fi.update_layout(yaxis=dict(autorange="reversed"),
-        paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.05)",font=dict(color="white"))
-    st.plotly_chart(fig_fi,use_container_width=True)
-    st.markdown('<div class="insight-box">🔑 <b>Key Finding:</b> Age (38%) and Number of Products (30%) are the top two churn drivers according to the Gradient Boosting model — far more important than credit score or salary.</div>',unsafe_allow_html=True)
-    st.write("")
-
-    # ML Risk Distribution on filtered customers
-    st.subheader("📈 ML Risk Distribution on Filtered Customers")
-    c1,c2 = st.columns(2)
-    with c1:
-        mr = fdf["ML_Churn_Risk"].value_counts().reset_index(); mr.columns=["Risk","Count"]
-        fig_r=px.pie(mr,values="Count",names="Risk",hole=.5,title="ML-Predicted Risk Segments",
-            color_discrete_map={"High Risk":"#FF4B4B","Medium Risk":"#FFB703","Low Risk":"#00A86B"})
-        st.plotly_chart(fig_r,use_container_width=True)
-    with c2:
-        fig_h=px.histogram(fdf,x="ML_Churn_Prob",color="ML_Churn_Risk",nbins=30,
-            title="Churn Probability Distribution",barmode="overlay",
-            color_discrete_map={"High Risk":"#FF4B4B","Medium Risk":"#FFB703","Low Risk":"#00A86B"})
-        fig_h.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.05)",font=dict(color="white"))
-        st.plotly_chart(fig_h,use_container_width=True)
-
-    # Top 20 High-Risk Table
-    st.subheader("🚨 Top 20 ML-Predicted High-Risk Customers")
-    top20 = fdf.sort_values("ML_Churn_Prob",ascending=False).head(20)
-    st.dataframe(top20[["CustomerId","Surname","Geography","Gender","Age","Balance",
-                          "NumOfProducts","IsActiveMember","ML_Churn_Prob","ML_Churn_Risk","Exited"]].reset_index(drop=True),
-                 use_container_width=True)
-
-    st.write("")
-
-    # ── Live Customer Predictor ──
-    st.subheader("🔮 Predict Churn for Any Customer — Live Predictor")
-    st.markdown("Fill in the customer details and get an instant ML churn probability:")
-
-    with st.form("predictor"):
-        p1,p2,p3 = st.columns(3)
         with p1:
-            inp_credit   = st.number_input("Credit Score",      300,850,650)
-            inp_age      = st.number_input("Age",                18,100, 38)
-            inp_tenure   = st.number_input("Tenure (years)",      0, 10,  5)
-            inp_balance  = st.number_input("Account Balance",     0,300000,75000)
+            credit_score = st.number_input("Credit Score", 300, 900, 650)
+            age = st.number_input("Age", 18, 100, 40)
+            tenure = st.number_input("Tenure", 0, 10, 5)
+
         with p2:
-            inp_products = st.selectbox("Number of Products",[1,2,3,4])
-            inp_crcard   = st.selectbox("Has Credit Card",[1,0],format_func=lambda x:"Yes" if x==1 else "No")
-            inp_active   = st.selectbox("Is Active Member",[1,0],format_func=lambda x:"Yes" if x==1 else "No")
-            inp_salary   = st.number_input("Estimated Salary",0,250000,100000)
+            balance = st.number_input("Balance", 0.0, 300000.0, 75000.0)
+            products = st.selectbox("Number of Products", [1, 2, 3, 4])
+            salary = st.number_input("Estimated Salary", 0.0, 250000.0, 100000.0)
+
         with p3:
-            inp_geo    = st.selectbox("Geography",["France","Germany","Spain"])
-            inp_gender = st.selectbox("Gender",["Male","Female"])
-        submitted = st.form_submit_button("🔮 Predict Churn Risk", use_container_width=True)
+            geography = st.selectbox("Geography", sorted(df["Geography"].unique()))
+            gender = st.selectbox("Gender", sorted(df["Gender"].unique()))
+            has_card = st.selectbox("Has Credit Card", [1, 0], format_func=lambda x: "Yes" if x == 1 else "No")
+            active = st.selectbox("Active Member", [1, 0], format_func=lambda x: "Yes" if x == 1 else "No")
+
+        submitted = st.form_submit_button("Predict Churn Risk")
 
     if submitted:
-        row = pd.DataFrame([{
-            "CreditScore":    inp_credit,
-            "Geography_enc":  le_geo.transform([inp_geo])[0],
-            "Gender_enc":     le_gen.transform([inp_gender])[0],
-            "Age":            inp_age,
-            "Tenure":         inp_tenure,
-            "Balance":        inp_balance,
-            "NumOfProducts":  inp_products,
-            "HasCrCard":      inp_crcard,
-            "IsActiveMember": inp_active,
-            "EstimatedSalary":inp_salary,
+        input_df = pd.DataFrame([{
+            "CreditScore": credit_score,
+            "Geography_Encoded": geo_encoder.transform([geography])[0],
+            "Gender_Encoded": gender_encoder.transform([gender])[0],
+            "Age": age,
+            "Tenure": tenure,
+            "Balance": balance,
+            "NumOfProducts": products,
+            "HasCrCard": has_card,
+            "IsActiveMember": active,
+            "EstimatedSalary": salary
         }])
-        prob  = best_model.predict_proba(row)[0][1]
-        pct   = round(prob*100,1)
 
-        if prob>=0.66:
-            color="#FF4B4B"; label="🔴 HIGH RISK — Very Likely to Churn"; box="warning-box"
-        elif prob>=0.33:
-            color="#FFB703"; label="🟡 MEDIUM RISK — Monitor Closely";    box="warning-box"
+        probability = model.predict_proba(input_df)[0][1]
+        probability_percent = round(probability * 100, 2)
+
+        if probability >= 0.65:
+            st.error(f"High Churn Risk: {probability_percent}%")
+            st.write("Suggested action: Assign relationship manager, offer loyalty benefit, and call customer within 24 hours.")
+        elif probability >= 0.35:
+            st.warning(f"Medium Churn Risk: {probability_percent}%")
+            st.write("Suggested action: Send personalized product offer and monitor engagement.")
         else:
-            color="#00A86B"; label="🟢 LOW RISK — Likely to Stay";        box="success-box"
+            st.success(f"Low Churn Risk: {probability_percent}%")
+            st.write("Suggested action: Continue normal engagement and cross-sell suitable products.")
 
-        st.markdown(f'<div class="{box}" style="margin-top:16px"><h3 style="color:{color}">{label}</h3>'
-                    f'<p><b>Gradient Boosting Churn Probability: {pct}%</b></p></div>',unsafe_allow_html=True)
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=probability_percent,
+            title={"text": "Churn Probability"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "steps": [
+                    {"range": [0, 35], "color": "lightgreen"},
+                    {"range": [35, 65], "color": "khaki"},
+                    {"range": [65, 100], "color": "salmon"}
+                ],
+                "bar": {"color": "royalblue"}
+            }
+        ))
 
-        gauge = go.Figure(go.Indicator(mode="gauge+number",value=pct,
-            title={"text":"Churn Probability (%)","font":{"color":"white"}},
-            gauge={"axis":{"range":[0,100]},
-                   "bar":{"color":color},
-                   "steps":[{"range":[0,33],"color":"#d4edda"},
-                             {"range":[33,66],"color":"#fff3cd"},
-                             {"range":[66,100],"color":"#f8d7da"}]}))
-        gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)",font=dict(color="white",size=16))
-        st.plotly_chart(gauge,use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
-# ── TAB 6 ──────────────────────────────────────────────────
-with tab6:
-    st.header("🎯 Strategic Retention Playbook")
+
+# ---------------- TAB 5 ----------------
+with tab5:
+    st.subheader("📈 Business Insights & Retention Strategy")
+
     st.markdown("""
-    ### 1. 🔄 Customer Reactivation Campaigns
-    Target inactive customers with personalised offers, relationship manager calls, and loyalty rewards.
+    ### Key Findings
 
-    ### 2. 📦 Product Bundling Strategy
-    Single-product users are at high risk. Cross-sell credit cards, savings plans, or advisory services.
+    **1. Inactive customers need immediate attention**  
+    Customers who are not active members usually show higher churn behavior.
 
-    ### 3. 💰 Premium Silent Churn Protection
-    High-balance inactive customers must be monitored. They look valuable but are quietly leaving.
+    **2. High-balance inactive customers are silent risk customers**  
+    These customers look valuable because they have high balance, but they may leave if the bank does not engage them.
 
-    ### 4. 🤖 ML Early Warning System
-    Use the Gradient Boosting churn probability score to prioritise which customers need action.
-    Focus intervention on High Risk (prob > 66%) customers first.
+    **3. Product usage is important**  
+    Single-product customers should be targeted with cross-sell offers.
 
-    ### 5. 🧠 Relationship Intelligence
-    Customers with Weak Relationship Index need immediate engagement — multi-channel outreach.
+    **4. ML risk score helps the bank prioritize customers**  
+    Instead of calling every customer, the bank can first target high-risk customers.
 
-    ### 6. 📊 Age & Product-Based Targeting
-    ML shows Age and NumOfProducts are the #1 and #2 churn drivers.
-    Older single-product inactive customers are the highest priority segment.
+    ### Recommended Retention Actions
+
+    - Call high-risk customers personally.
+    - Offer loyalty rewards to inactive high-balance customers.
+    - Cross-sell products to single-product customers.
+    - Create geography-specific churn campaigns.
+    - Monitor churn probability every week.
+    - Use this dashboard as an early warning system.
     """)
-    st.markdown("""
-    <div class="insight-box">
-    🚀 <b>Final Business Impact:</b> This platform combines behavioural rule-based analytics
-    with three ML models (Logistic Regression, Random Forest, Gradient Boosting — AUC 0.87)
-    to convert raw European banking data into actionable churn intelligence.
-    </div>""", unsafe_allow_html=True)
 
-# ── RAW DATA EXPANDER ───────────────────────────────────────
-with st.expander("📂 View Full Filtered Dataset with ML Predictions"):
-    st.dataframe(fdf[["CustomerId","Surname","Geography","Gender","Age","CreditScore",
-                       "Balance","NumOfProducts","IsActiveMember","Tenure","HasCrCard",
-                       "EstimatedSalary","Exited","ML_Churn_Prob","ML_Churn_Risk",
-                       "Engagement_Profile","Risk_Level"]],use_container_width=True)
+
+# ---------------- TAB 6 ----------------
+with tab6:
+    st.subheader("📋 Full Data Explorer")
+
+    st.dataframe(
+        filtered_df[
+            [
+                "CustomerId",
+                "Surname",
+                "Geography",
+                "Gender",
+                "Age",
+                "CreditScore",
+                "Balance",
+                "NumOfProducts",
+                "HasCrCard",
+                "IsActiveMember",
+                "Tenure",
+                "EstimatedSalary",
+                "Exited",
+                "Customer_Status",
+                "Engagement_Segment",
+                "Relationship_Score",
+                "Relationship_Level",
+                "Churn_Probability_Percent",
+                "ML_Risk_Level"
+            ]
+        ],
+        use_container_width=True
+    )
